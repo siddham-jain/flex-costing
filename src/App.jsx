@@ -87,10 +87,11 @@ const DEFAULT_FRAME_RATES = [
 const DEFAULT_CONSTANTS = {
     TRANSPORT_RATE: 20,
     INSTALLATION_RATE: 6,
-    WELDING_PER_SUPPORT: 40,
+    WELDING_PER_SUPPORT: 20,
     REVERSE_CUTTING_BASE: 1000,
     REVERSE_CUTTING_PER_INCH: 75,
     SUPPORT_EVERY_FT: 4,
+    LED_COST: 50,
 };
 
 const C = {
@@ -243,10 +244,10 @@ function SettingsModal({ isOpen, onClose, settings, onSave }) {
 
     const updateMaterialRate = (catKey, itemId, newRate) => {
         setLocalSettings(prev => {
-            const next = {...prev};
-            next.materials = {...prev.materials};
-            next.materials[catKey] = {...prev.materials[catKey]};
-            next.materials[catKey].items = prev.materials[catKey].items.map(item => 
+            const next = { ...prev };
+            next.materials = { ...prev.materials };
+            next.materials[catKey] = { ...prev.materials[catKey] };
+            next.materials[catKey].items = prev.materials[catKey].items.map(item =>
                 item.id === itemId ? { ...item, rate: parseFloat(newRate) || 0 } : item
             );
             return next;
@@ -274,7 +275,7 @@ function SettingsModal({ isOpen, onClose, settings, onSave }) {
                     <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 24, color: C.fg }}>Edit Default Costs</h2>
                     <button onClick={onClose} style={{ cursor: "pointer", background: "none", border: "none", fontSize: 28, color: C.fg }}>&times;</button>
                 </div>
-                
+
                 <h3 style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, marginBottom: 16, color: C.fg }}>Service & Add-on Rates</h3>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 40 }}>
                     <UnderlineInput label="Transport Rate (per km)" value={localSettings.constants.TRANSPORT_RATE} onChange={v => updateConstant('TRANSPORT_RATE', v)} />
@@ -282,6 +283,7 @@ function SettingsModal({ isOpen, onClose, settings, onSave }) {
                     <UnderlineInput label="Welding (per joint)" value={localSettings.constants.WELDING_PER_SUPPORT} onChange={v => updateConstant('WELDING_PER_SUPPORT', v)} />
                     <UnderlineInput label="Rev. Cutting Base (₹)" value={localSettings.constants.REVERSE_CUTTING_BASE} onChange={v => updateConstant('REVERSE_CUTTING_BASE', v)} />
                     <UnderlineInput label="Rev. Cutting (per inch)" value={localSettings.constants.REVERSE_CUTTING_PER_INCH} onChange={v => updateConstant('REVERSE_CUTTING_PER_INCH', v)} />
+                    <UnderlineInput label="LED Cost (₹)" value={localSettings.constants.LED_COST} onChange={v => updateConstant('LED_COST', v)} />
                 </div>
 
                 <h3 style={{ fontFamily: "'Inter', sans-serif", fontSize: 16, marginBottom: 16, color: C.fg }}>Frame Rates (per ft)</h3>
@@ -328,12 +330,14 @@ export default function LeRoyFlexCosting() {
     const [needsInstallation, setNeedsInstallation] = useState(false);
     const [qty, setQty] = useState(1);
     const [showSettings, setShowSettings] = useState(false);
+    const [dimUnit, setDimUnit] = useState("ft");
+    const [needsLEDs, setNeedsLEDs] = useState(false);
 
     const [settings, setSettings] = useState(() => {
         try {
             const saved = localStorage.getItem("lrpp_settings");
             if (saved) return JSON.parse(saved);
-        } catch(e) {}
+        } catch (e) { }
         return {
             materials: DEFAULT_MATERIAL_CATEGORIES,
             frames: DEFAULT_FRAME_RATES,
@@ -343,7 +347,7 @@ export default function LeRoyFlexCosting() {
 
     const MATERIAL_CATEGORIES = settings.materials;
     const FRAME_RATES = settings.frames;
-    const { TRANSPORT_RATE, INSTALLATION_RATE, WELDING_PER_SUPPORT, REVERSE_CUTTING_BASE, REVERSE_CUTTING_PER_INCH, SUPPORT_EVERY_FT } = settings.constants;
+    const { TRANSPORT_RATE, INSTALLATION_RATE, WELDING_PER_SUPPORT, REVERSE_CUTTING_BASE, REVERSE_CUTTING_PER_INCH, SUPPORT_EVERY_FT, LED_COST } = settings.constants;
 
     const handleSaveSettings = (newSettings) => {
         setSettings(newSettings);
@@ -371,56 +375,77 @@ export default function LeRoyFlexCosting() {
         setNeedsFrame(false); setFrameType("2");
         setNeedsTransport(false); setDistance(0);
         setNeedsInstallation(false); setQty(1);
+        setDimUnit("ft"); setNeedsLEDs(false);
     };
 
     const costs = useMemo(() => {
-        const r = { materialCost: 0, effectiveWidth: 0, effectiveArea: 0, reverseCuttingCost: 0, frameCost: 0, supportCount: 0, supportMaterialCost: 0, supportLength: 0, weldingCost: 0, transportCost: 0, installationCost: 0, perimeter: 0, subtotal: 0, total: 0 };
+        const r = { materialCost: 0, effectiveWidth: 0, effectiveArea: 0, reverseCuttingCost: 0, frameCost: 0, supportCount: 0, supportMaterialCost: 0, supportLength: 0, weldingCost: 0, transportCost: 0, installationCost: 0, perimeter: 0, ledCount: 0, ledCost: 0, subtotal: 0, total: 0 };
+        
+        const lFt = dimUnit === "in" ? length / 12 : length;
+        const wFt = dimUnit === "in" ? breadth / 12 : breadth;
+
         if (isLetterBoard) {
             r.materialCost = runningInch * rate;
             if (reverseCutting) r.reverseCuttingCost = REVERSE_CUTTING_BASE + (reverseCuttingInch * REVERSE_CUTTING_PER_INCH);
         } else {
-            const effW = getEffectiveRollWidth(breadth);
+            const effW = getEffectiveRollWidth(wFt);
             r.effectiveWidth = effW;
             if (isAcrylic) {
-                r.effectiveArea = length * 12 * breadth * 12;
+                r.effectiveArea = lFt * 12 * wFt * 12;
                 r.materialCost = r.effectiveArea * rate;
             } else {
-                r.effectiveArea = length * effW;
+                if (dimUnit === "in") {
+                    const lIn = length;
+                    const effWIn = effW * 12;
+                    const areaInSqInches = lIn * effWIn;
+                    r.effectiveArea = areaInSqInches / 144;
+                } else {
+                    r.effectiveArea = lFt * effW;
+                }
                 r.materialCost = r.effectiveArea * rate;
             }
         }
         if (needsFrame && !isLetterBoard) {
-            const w = isAcrylic ? breadth : (r.effectiveWidth || breadth);
-            r.perimeter = 2 * (w + length);
+            const w = isAcrylic ? wFt : (r.effectiveWidth || wFt);
+            r.perimeter = 2 * (w + lFt);
             const fr = FRAME_RATES.find((f) => f.weight === parseInt(frameType));
             if (fr) r.frameCost = r.perimeter * fr.rate;
-            // Supports: 1 horizontal rod every 4ft of height
-            const heightFt = Math.max(length, w);
-            r.supportCount = Math.max(0, Math.floor(heightFt / SUPPORT_EVERY_FT));
+            if (material === "backlight") r.frameCost *= 2;
+            // Supports calculation
+            const heightFt = Math.max(lFt, w);
+            const rawCount = Math.floor(heightFt / 5);
+            r.supportCount = heightFt >= 10 ? Math.max(0, rawCount - 1) : Math.max(0, rawCount);
             // Each support rod runs across the width — its length = width of sign
-            r.supportLength = Math.min(length, w); // shorter dimension = width the rod spans
-            // Support material cost = number of supports × rod length × frame rate per ft
+            r.supportLength = Math.min(lFt, w); // shorter dimension = width the rod spans
             if (fr) r.supportMaterialCost = r.supportCount * r.supportLength * fr.rate;
-            // Welding cost = ₹40 per support joint
-            r.weldingCost = r.supportCount * WELDING_PER_SUPPORT;
+            r.weldingCost = (r.supportCount * 2 + 4) * WELDING_PER_SUPPORT;
+        }
+        if (material === "backlight" && needsLEDs) {
+            const maxFt = Math.max(lFt, wFt);
+            const minFt = Math.min(lFt, wFt);
+            const ledsLength = Math.ceil((maxFt * 12) / 40);
+            const ledsWidth = Math.ceil(minFt / 2);
+            r.ledCount = ledsLength * ledsWidth;
+            r.ledCost = r.ledCount * LED_COST;
         }
         if (needsTransport) r.transportCost = distance * TRANSPORT_RATE;
         if (needsInstallation && !isLetterBoard) {
-            const area = isAcrylic ? (length * breadth) : (length * (r.effectiveWidth || breadth));
+            const area = isAcrylic ? (lFt * wFt) : (lFt * (r.effectiveWidth || wFt));
             r.installationCost = area * INSTALLATION_RATE;
         }
-        r.subtotal = r.materialCost + r.reverseCuttingCost + r.frameCost + r.supportMaterialCost + r.weldingCost + r.transportCost + r.installationCost;
+        r.subtotal = r.materialCost + r.reverseCuttingCost + r.frameCost + r.supportMaterialCost + r.weldingCost + r.ledCost + r.transportCost + r.installationCost;
         r.total = r.subtotal * Math.max(qty, 1);
         return r;
-    }, [category, material, rate, length, breadth, runningInch, reverseCutting, reverseCuttingInch, needsFrame, frameType, needsTransport, distance, needsInstallation, isLetterBoard, isAcrylic, qty]);
+    }, [category, material, rate, length, breadth, runningInch, reverseCutting, reverseCuttingInch, needsFrame, frameType, needsTransport, distance, needsInstallation, isLetterBoard, isAcrylic, qty, dimUnit, needsLEDs, LED_COST, FRAME_RATES, REVERSE_CUTTING_BASE, REVERSE_CUTTING_PER_INCH, TRANSPORT_RATE, INSTALLATION_RATE, WELDING_PER_SUPPORT]);
 
     const costItems = [];
     const matLabel = hasSubcategory ? `${categoryLabel} — ${selectedMaterial?.name}` : categoryLabel;
-    costItems.push({ label: matLabel || "Material", detail: !isLetterBoard && !isAcrylic && costs.effectiveArea > 0 ? `${costs.effectiveArea} sq ft × ₹${rate}` : isLetterBoard && runningInch > 0 ? `${runningInch} inch × ₹${rate}` : isAcrylic && costs.effectiveArea > 0 ? `${costs.effectiveArea.toLocaleString()} sq in × ₹${rate}` : null, value: costs.materialCost });
+    costItems.push({ label: matLabel || "Material", detail: !isLetterBoard && !isAcrylic && costs.effectiveArea > 0 ? `${costs.effectiveArea.toFixed(2)} sq ft × ₹${rate}` : isLetterBoard && runningInch > 0 ? `${runningInch} inch × ₹${rate}` : isAcrylic && costs.effectiveArea > 0 ? `${costs.effectiveArea.toLocaleString()} sq in × ₹${rate}` : null, value: costs.materialCost });
     if (reverseCutting && costs.reverseCuttingCost > 0) costItems.push({ label: "Reverse Cutting", detail: `₹${REVERSE_CUTTING_BASE} + ${reverseCuttingInch}″ × ₹${REVERSE_CUTTING_PER_INCH}`, value: costs.reverseCuttingCost });
-    if (needsFrame && costs.frameCost > 0) costItems.push({ label: "Frame (Perimeter)", detail: `${costs.perimeter.toFixed(1)}ft × ₹${FRAME_RATES.find(f => f.weight === parseInt(frameType))?.rate}/ft`, value: costs.frameCost });
+    if (needsFrame && costs.frameCost > 0) costItems.push({ label: "Frame (Perimeter)", detail: `${costs.perimeter.toFixed(1)}ft × ₹${FRAME_RATES.find(f => f.weight === parseInt(frameType))?.rate}/ft${material === "backlight" ? " (Doubled)" : ""}`, value: costs.frameCost });
     if (needsFrame && costs.supportMaterialCost > 0) costItems.push({ label: "Support Rods (Material)", detail: `${costs.supportCount} rods × ${costs.supportLength.toFixed(1)}ft × ₹${FRAME_RATES.find(f => f.weight === parseInt(frameType))?.rate}/ft`, value: costs.supportMaterialCost });
-    if (needsFrame && costs.weldingCost > 0) costItems.push({ label: "Support Welding", detail: `${costs.supportCount} joints × ₹${WELDING_PER_SUPPORT}`, value: costs.weldingCost });
+    if (needsFrame && costs.weldingCost > 0) costItems.push({ label: "Support Welding", detail: `${(costs.supportCount * 2 + 4)} joints × ₹${WELDING_PER_SUPPORT}`, value: costs.weldingCost });
+    if (material === "backlight" && costs.ledCost > 0) costItems.push({ label: "LED Modules", detail: `${costs.ledCount} LEDs × ₹${LED_COST}`, value: costs.ledCost });
     if (needsInstallation && costs.installationCost > 0) costItems.push({ label: "Installation", value: costs.installationCost });
     if (needsTransport && costs.transportCost > 0) costItems.push({ label: "Transportation", detail: `${distance} km × ₹${TRANSPORT_RATE}`, value: costs.transportCost });
 
@@ -476,14 +501,14 @@ export default function LeRoyFlexCosting() {
                         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                     >Edit Rates</button>
                     <button onClick={handleReset} style={{
-                    height: 40, padding: "0 24px", border: `1px solid ${C.fg}`, background: "transparent",
-                    fontFamily: "'Inter', sans-serif", fontSize: 10, fontWeight: 500,
-                    letterSpacing: "0.2em", textTransform: "uppercase", color: C.fg,
-                    cursor: "pointer", transition: "all 500ms ease-out", position: "relative", overflow: "hidden",
-                }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = C.fg; e.currentTarget.style.color = C.bg; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.fg; }}
-                >Clear All</button>
+                        height: 40, padding: "0 24px", border: `1px solid ${C.fg}`, background: "transparent",
+                        fontFamily: "'Inter', sans-serif", fontSize: 10, fontWeight: 500,
+                        letterSpacing: "0.2em", textTransform: "uppercase", color: C.fg,
+                        cursor: "pointer", transition: "all 500ms ease-out", position: "relative", overflow: "hidden",
+                    }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = C.fg; e.currentTarget.style.color = C.bg; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.fg; }}
+                    >Clear All</button>
                 </div>
             </header>
 
@@ -539,6 +564,12 @@ export default function LeRoyFlexCosting() {
                         <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 28 }}>
                             <span style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 36, fontWeight: 400, color: C.muted, lineHeight: 0.9 }}>02</span>
                             <h2 style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22, fontWeight: 400, color: C.fg }}>Dimensions</h2>
+                            {!isLetterBoard && (
+                                <div style={{ marginLeft: "auto", display: "flex", background: C.muted, borderRadius: 20, padding: 4 }}>
+                                    <div onClick={() => setDimUnit("ft")} style={{ padding: "4px 12px", borderRadius: 16, background: dimUnit === "ft" ? "#fff" : "transparent", cursor: "pointer", fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 500, color: C.fg, boxShadow: dimUnit === "ft" ? "0 2px 4px rgba(0,0,0,0.05)" : "none", transition: "all 0.2s" }}>ft</div>
+                                    <div onClick={() => setDimUnit("in")} style={{ padding: "4px 12px", borderRadius: 16, background: dimUnit === "in" ? "#fff" : "transparent", cursor: "pointer", fontFamily: "'Inter', sans-serif", fontSize: 12, fontWeight: 500, color: C.fg, boxShadow: dimUnit === "in" ? "0 2px 4px rgba(0,0,0,0.05)" : "none", transition: "all 0.2s" }}>in</div>
+                                </div>
+                            )}
                         </div>
                         {isLetterBoard ? (
                             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -549,15 +580,15 @@ export default function LeRoyFlexCosting() {
                         ) : (
                             <>
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32 }}>
-                                    <UnderlineInput label="Length" value={length || ""} onChange={setLength} suffix="ft" step={0.5} />
-                                    <UnderlineInput label="Width / Breadth" value={breadth || ""} onChange={setBreadth} suffix="ft" step={0.5} />
+                                    <UnderlineInput label="Length" value={length || ""} onChange={setLength} suffix={dimUnit} step={0.5} />
+                                    <UnderlineInput label="Width / Breadth" value={breadth || ""} onChange={setBreadth} suffix={dimUnit} step={0.5} />
                                 </div>
                                 {!isAcrylic && breadth > 0 && (
                                     <div style={{ marginTop: 20, padding: "14px 0", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-                                        <div style={{ width: 6, height: 6, background: breadth !== costs.effectiveWidth ? C.orange : C.blue }} />
+                                        <div style={{ width: 6, height: 6, background: (dimUnit === "in" ? breadth / 12 : breadth) !== costs.effectiveWidth ? C.orange : C.blue }} />
                                         <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: C.mutedFg }}>
-                                            {breadth !== costs.effectiveWidth
-                                                ? <>Width {breadth}ft → billed at <strong style={{ color: C.fg }}>{costs.effectiveWidth}ft</strong> (next roll)</>
+                                            {(dimUnit === "in" ? breadth / 12 : breadth) !== costs.effectiveWidth
+                                                ? <>Width {(dimUnit === "in" ? breadth / 12 : breadth).toFixed(2)}ft → billed at <strong style={{ color: C.fg }}>{costs.effectiveWidth}ft</strong> (next roll)</>
                                                 : <>Width matches standard {costs.effectiveWidth}ft roll</>}
                                         </span>
                                     </div>
@@ -610,7 +641,10 @@ export default function LeRoyFlexCosting() {
                         </div>
                         {!isLetterBoard && (
                             <>
-                                <ToggleSwitch label="Frame & Supports" sublabel="Perimeter frame + support rod material + ₹40/joint welding" checked={needsFrame} onChange={setNeedsFrame} />
+                                {material === "backlight" && (
+                                    <ToggleSwitch label="Add LEDs (Backlight)" sublabel={`₹${LED_COST} per LED module (40" length × 2' width)`} checked={needsLEDs} onChange={setNeedsLEDs} />
+                                )}
+                                <ToggleSwitch label="Frame & Supports" sublabel={`Perimeter frame + support rods + welding ${material === "backlight" ? "(Cost Doubled for Backlight)" : ""}`} checked={needsFrame} onChange={setNeedsFrame} />
                                 {needsFrame && (
                                     <div style={{ paddingLeft: 56, paddingTop: 16, paddingBottom: 16 }}>
                                         <UnderlineSelect label="Frame Weight" value={frameType} onChange={setFrameType}
