@@ -707,7 +707,7 @@ export default function LeRoyFlexCosting() {
                                             <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: "rgba(255,255,255,0.7)" }}>{item.label}</div>
                                             {item.detail && <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>{item.detail}</div>}
                                         </div>
-                                        <div style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 16, color: "#fff" }}>{formatINR(item.value)}</div>
+                                        <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 15, fontWeight: 500, color: "#fff" }}>{formatINR(item.value)}</div>
                                     </div>
                                 ))}
 
@@ -727,7 +727,7 @@ export default function LeRoyFlexCosting() {
                                 display: "flex", justifyContent: "space-between", alignItems: "baseline",
                             }}>
                                 <span style={{ fontFamily: "'Inter', sans-serif", fontSize: 12, letterSpacing: "0.15em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)" }}>Per Unit</span>
-                                <span style={{ fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, color: "rgba(255,255,255,0.85)" }}>{formatINR(costs.subtotal)}</span>
+                                <span style={{ fontFamily: "'Inter', sans-serif", fontWeight: 500, fontSize: 18, color: "rgba(255,255,255,0.85)" }}>{formatINR(costs.subtotal)}</span>
                             </div>
                             {qty > 1 && (
                                 <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -739,8 +739,8 @@ export default function LeRoyFlexCosting() {
                             <div style={{ marginTop: 28, paddingTop: 28, borderTop: `2px solid ${C.orange}` }}>
                                 <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 10, letterSpacing: "0.25em", textTransform: "uppercase", color: C.orange, marginBottom: 8 }}>Grand Total</div>
                                 <div style={{
-                                    fontFamily: "'Playfair Display', Georgia, serif",
-                                    fontSize: "clamp(2rem, 4vw, 3rem)", fontWeight: 400,
+                                    fontFamily: "'Inter', sans-serif",
+                                    fontSize: "clamp(2rem, 4vw, 3rem)", fontWeight: 600,
                                     color: "#fff", lineHeight: 1, letterSpacing: "-0.02em",
                                 }}>{formatINR(costs.total)}</div>
                             </div>
