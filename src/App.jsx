@@ -87,11 +87,12 @@ const DEFAULT_FRAME_RATES = [
 const DEFAULT_CONSTANTS = {
     TRANSPORT_RATE: 20,
     INSTALLATION_RATE: 6,
+    INSTALLATION_BACKLIGHT_RATE: 10,
     WELDING_PER_SUPPORT: 20,
     REVERSE_CUTTING_BASE: 1000,
     REVERSE_CUTTING_PER_INCH: 75,
     SUPPORT_EVERY_FT: 4,
-    LED_COST: 50,
+    LED_COST: 500,
 };
 
 const C = {
@@ -280,6 +281,7 @@ function SettingsModal({ isOpen, onClose, settings, onSave }) {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 40 }}>
                     <UnderlineInput label="Transport Rate (per km)" value={localSettings.constants.TRANSPORT_RATE} onChange={v => updateConstant('TRANSPORT_RATE', v)} />
                     <UnderlineInput label="Installation Rate (per sq ft)" value={localSettings.constants.INSTALLATION_RATE} onChange={v => updateConstant('INSTALLATION_RATE', v)} />
+                    <UnderlineInput label="Backlight Installation (per sq ft)" value={localSettings.constants.INSTALLATION_BACKLIGHT_RATE} onChange={v => updateConstant('INSTALLATION_BACKLIGHT_RATE', v)} />
                     <UnderlineInput label="Welding (per joint)" value={localSettings.constants.WELDING_PER_SUPPORT} onChange={v => updateConstant('WELDING_PER_SUPPORT', v)} />
                     <UnderlineInput label="Rev. Cutting Base (₹)" value={localSettings.constants.REVERSE_CUTTING_BASE} onChange={v => updateConstant('REVERSE_CUTTING_BASE', v)} />
                     <UnderlineInput label="Rev. Cutting (per inch)" value={localSettings.constants.REVERSE_CUTTING_PER_INCH} onChange={v => updateConstant('REVERSE_CUTTING_PER_INCH', v)} />
@@ -347,7 +349,7 @@ export default function LeRoyFlexCosting() {
 
     const MATERIAL_CATEGORIES = settings.materials;
     const FRAME_RATES = settings.frames;
-    const { TRANSPORT_RATE, INSTALLATION_RATE, WELDING_PER_SUPPORT, REVERSE_CUTTING_BASE, REVERSE_CUTTING_PER_INCH, SUPPORT_EVERY_FT, LED_COST } = settings.constants;
+    const { TRANSPORT_RATE, INSTALLATION_RATE, INSTALLATION_BACKLIGHT_RATE, WELDING_PER_SUPPORT, REVERSE_CUTTING_BASE, REVERSE_CUTTING_PER_INCH, SUPPORT_EVERY_FT, LED_COST } = settings.constants;
 
     const handleSaveSettings = (newSettings) => {
         setSettings(newSettings);
@@ -362,6 +364,8 @@ export default function LeRoyFlexCosting() {
     const selectedMaterial = currentMaterials.find((m) => m.id === material);
     const rate = selectedMaterial?.rate || 0;
     const categoryLabel = catData?.label || "";
+    const flexItems = MATERIAL_CATEGORIES.flexes?.items || [];
+    const blackoutRate = flexItems.find(m => m.id === "blackout")?.rate || 0;
 
     const handleCategoryChange = useCallback((val) => {
         setCategory(val);
@@ -379,8 +383,8 @@ export default function LeRoyFlexCosting() {
     };
 
     const costs = useMemo(() => {
-        const r = { materialCost: 0, effectiveWidth: 0, effectiveArea: 0, reverseCuttingCost: 0, frameCost: 0, supportCount: 0, supportMaterialCost: 0, supportLength: 0, weldingCost: 0, transportCost: 0, installationCost: 0, perimeter: 0, ledCount: 0, ledCost: 0, subtotal: 0, total: 0 };
-        
+        const r = { materialCost: 0, blackoutCost: 0, effectiveWidth: 0, effectiveArea: 0, reverseCuttingCost: 0, frameCost: 0, supportCount: 0, supportMaterialCost: 0, supportLength: 0, weldingCost: 0, transportCost: 0, installationCost: 0, perimeter: 0, ledCount: 0, ledCost: 0, subtotal: 0, total: 0 };
+
         const lFt = dimUnit === "in" ? length / 12 : length;
         const wFt = dimUnit === "in" ? breadth / 12 : breadth;
 
@@ -404,6 +408,9 @@ export default function LeRoyFlexCosting() {
                 }
                 r.materialCost = r.effectiveArea * rate;
             }
+        }
+        if (material === "backlight") {
+            r.blackoutCost = r.effectiveArea * blackoutRate;
         }
         if (needsFrame && !isLetterBoard) {
             const w = isAcrylic ? wFt : (r.effectiveWidth || wFt);
@@ -431,22 +438,33 @@ export default function LeRoyFlexCosting() {
         if (needsTransport) r.transportCost = distance * TRANSPORT_RATE;
         if (needsInstallation && !isLetterBoard) {
             const area = isAcrylic ? (lFt * wFt) : (lFt * (r.effectiveWidth || wFt));
-            r.installationCost = area * INSTALLATION_RATE;
+            const activeInstallRate = material === "backlight" ? INSTALLATION_BACKLIGHT_RATE : INSTALLATION_RATE;
+            r.installationCost = area * activeInstallRate;
         }
-        r.subtotal = r.materialCost + r.reverseCuttingCost + r.frameCost + r.supportMaterialCost + r.weldingCost + r.ledCost + r.transportCost + r.installationCost;
+        r.subtotal = r.materialCost + r.blackoutCost + r.reverseCuttingCost + r.frameCost + r.supportMaterialCost + r.weldingCost + r.ledCost + r.transportCost + r.installationCost;
         r.total = r.subtotal * Math.max(qty, 1);
         return r;
-    }, [category, material, rate, length, breadth, runningInch, reverseCutting, reverseCuttingInch, needsFrame, frameType, needsTransport, distance, needsInstallation, isLetterBoard, isAcrylic, qty, dimUnit, needsLEDs, LED_COST, FRAME_RATES, REVERSE_CUTTING_BASE, REVERSE_CUTTING_PER_INCH, TRANSPORT_RATE, INSTALLATION_RATE, WELDING_PER_SUPPORT]);
+    }, [category, material, rate, blackoutRate, length, breadth, runningInch, reverseCutting, reverseCuttingInch, needsFrame, frameType, needsTransport, distance, needsInstallation, isLetterBoard, isAcrylic, qty, dimUnit, needsLEDs, LED_COST, FRAME_RATES, REVERSE_CUTTING_BASE, REVERSE_CUTTING_PER_INCH, TRANSPORT_RATE, INSTALLATION_RATE, INSTALLATION_BACKLIGHT_RATE, WELDING_PER_SUPPORT]);
 
     const costItems = [];
     const matLabel = hasSubcategory ? `${categoryLabel} — ${selectedMaterial?.name}` : categoryLabel;
     costItems.push({ label: matLabel || "Material", detail: !isLetterBoard && !isAcrylic && costs.effectiveArea > 0 ? `${costs.effectiveArea.toFixed(2)} sq ft × ₹${rate}` : isLetterBoard && runningInch > 0 ? `${runningInch} inch × ₹${rate}` : isAcrylic && costs.effectiveArea > 0 ? `${costs.effectiveArea.toLocaleString()} sq in × ₹${rate}` : null, value: costs.materialCost });
+    if (material === "backlight" && costs.blackoutCost > 0) {
+        costItems.push({ label: "Blackout", detail: `${costs.effectiveArea.toFixed(2)} sq ft × ₹${blackoutRate}`, value: costs.blackoutCost });
+    }
     if (reverseCutting && costs.reverseCuttingCost > 0) costItems.push({ label: "Reverse Cutting", detail: `₹${REVERSE_CUTTING_BASE} + ${reverseCuttingInch}″ × ₹${REVERSE_CUTTING_PER_INCH}`, value: costs.reverseCuttingCost });
-    if (needsFrame && costs.frameCost > 0) costItems.push({ label: "Frame (Perimeter)", detail: `${costs.perimeter.toFixed(1)}ft × ₹${FRAME_RATES.find(f => f.weight === parseInt(frameType))?.rate}/ft${material === "backlight" ? " (Doubled)" : ""}`, value: costs.frameCost });
-    if (needsFrame && costs.supportMaterialCost > 0) costItems.push({ label: "Support Rods (Material)", detail: `${costs.supportCount} rods × ${costs.supportLength.toFixed(1)}ft × ₹${FRAME_RATES.find(f => f.weight === parseInt(frameType))?.rate}/ft`, value: costs.supportMaterialCost });
-    if (needsFrame && costs.weldingCost > 0) costItems.push({ label: "Support Welding", detail: `${(costs.supportCount * 2 + 4)} joints × ₹${WELDING_PER_SUPPORT}`, value: costs.weldingCost });
+    if (needsFrame && (costs.frameCost + costs.supportMaterialCost + costs.weldingCost) > 0) {
+        costItems.push({
+            label: "Frame & Fabrication",
+            detail: `Incl. Perimeter, Support Rods & Welding`,
+            value: costs.frameCost + costs.supportMaterialCost + costs.weldingCost
+        });
+    }
     if (material === "backlight" && costs.ledCost > 0) costItems.push({ label: "LED Modules", detail: `${costs.ledCount} LEDs × ₹${LED_COST}`, value: costs.ledCost });
-    if (needsInstallation && costs.installationCost > 0) costItems.push({ label: "Installation", value: costs.installationCost });
+    if (needsInstallation && costs.installationCost > 0) {
+        const activeInstallRate = material === "backlight" ? INSTALLATION_BACKLIGHT_RATE : INSTALLATION_RATE;
+        costItems.push({ label: "Installation", detail: `₹${activeInstallRate}/sq ft`, value: costs.installationCost });
+    }
     if (needsTransport && costs.transportCost > 0) costItems.push({ label: "Transportation", detail: `${distance} km × ₹${TRANSPORT_RATE}`, value: costs.transportCost });
 
     return (
@@ -656,7 +674,7 @@ export default function LeRoyFlexCosting() {
                                         </div>
                                     </div>
                                 )}
-                                <ToggleSwitch label="Installation" sublabel={`₹${INSTALLATION_RATE} per sq ft`} checked={needsInstallation} onChange={setNeedsInstallation} />
+                                <ToggleSwitch label="Installation" sublabel={`₹${material === "backlight" ? INSTALLATION_BACKLIGHT_RATE : INSTALLATION_RATE} per sq ft`} checked={needsInstallation} onChange={setNeedsInstallation} />
                             </>
                         )}
                         <ToggleSwitch label="Transportation" sublabel={`₹${TRANSPORT_RATE} per km`} checked={needsTransport} onChange={setNeedsTransport} />
